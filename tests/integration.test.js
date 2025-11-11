@@ -5,10 +5,12 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const { sampleHtmlWithYale } = require('./test-utils');
 const nock = require('nock');
+const fs = require('fs').promises; // <-- added
 
 // Set a different port for testing to avoid conflict with the main app
 const TEST_PORT = 3099;
 let server;
+
 
 describe('Integration Tests', () => {
   // Modify the app to use a test port
@@ -17,9 +19,12 @@ describe('Integration Tests', () => {
     nock.disableNetConnect();
     nock.enableNetConnect('127.0.0.1');
     
-    // Create a temporary test app file
-    await execAsync('cp app.js app.test.js');
-    await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
+    // Create a temporary test app file (portable, works on Linux CI)
+    // await execAsync('cp app.js app.test.js');
+    // await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
+    const appSource = await fs.readFile('app.js', 'utf8');
+    const testSource = appSource.replace(/const PORT = 3001/, `const PORT = ${TEST_PORT}`);
+    await fs.writeFile('app.test.js', testSource, 'utf8');
     
     // Start the test server
     server = require('child_process').spawn('node', ['app.test.js'], {
@@ -31,10 +36,15 @@ describe('Integration Tests', () => {
     await new Promise(resolve => setTimeout(resolve, 2000));
   }, 10000); // Increase timeout for server startup
 
+
   afterAll(async () => {
     // Kill the test server and clean up
     if (server && server.pid) {
-      process.kill(-server.pid);
+      try {
+        process.kill(-server.pid);
+      } catch (err) {
+        // ignore
+      }
     }
     await execAsync('rm app.test.js');
     nock.cleanAll();
